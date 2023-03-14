@@ -1,188 +1,121 @@
-/*
- * Package : mqtt_client
- * Author : S. Hamblett <steve.hamblett@linux.com>
- * Date   : 31/05/2017
- * Copyright :  S.Hamblett
- */
-
 import 'dart:async';
-import 'dart:io';
-import 'package:mqtt5_client/mqtt5_client.dart';
-import 'package:mqtt5_client/mqtt5_server_client.dart';
+import 'package:flutter/material.dart';
+import 'package:geolocator/geolocator.dart';
 
-/// An annotated simple subscribe/publish usage example for mqtt5_server_client using websockets.
-/// Please read in with reference to the MQTT specification. The example is runnable, also refer to
-/// test/mqtt5_client_broker_test...dart files for separate subscribe/publish tests.
+void main() {
+  runApp(MyApp());
+}
 
-/// First create a client, the client is constructed with a broker name, client identifier
-/// and port if needed. The client identifier (short ClientId) is an identifier of each MQTT
-/// client connecting to an MQTT broker. As the word identifier already suggests, it should be unique per client connection.
-/// The broker uses it for identifying the client and the current state(session) of the client.
-///
-/// If a port is not specified the standard port of 1883 is used.
-///
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(home: Home());
+  }
+}
 
-/// A websocket URL must start with ws:// or wss:// or Dart will throw an exception, consult your websocket MQTT broker
-/// for details.
-final client = MqttServerClient('ws://test.mosquitto.org', '');
+class Home extends StatefulWidget {
+  @override
+  State<Home> createState() => _HomeState();
+}
 
-Future<int> main() async {
-  client.useWebSocket = true;
-  client.port = 8080; // ( or whatever your ws port is)
-  /// You can also supply your own websocket protocol list or disable this feature using the websocketProtocols
-  /// setter, read the API docs for further details here, the vast majority of brokers will support the client default
-  /// list so in most cases you can ignore this.
-  /// client.websocketProtocols = ['myString'];
+class _HomeState extends State<Home> {
+  bool servicestatus = false;
+  bool haspermission = false;
+  late LocationPermission permission;
+  late Position position;
+  String long = "", lat = "";
+  late StreamSubscription<Position> positionStream;
 
-  /// Set logging on if needed, defaults to off
-  client.logging(on: false);
-
-  /// If you intend to use a keep alive value in your connect message that is not the default(60s)
-  /// you must set it here
-  client.keepAlivePeriod = 20;
-
-  /// Add the unsolicited disconnection callback
-  client.onDisconnected = onDisconnected;
-
-  /// Add the successful connection callback
-  client.onConnected = onConnected;
-
-  /// Add a subscribed callback, there is also an unsubscribed callback if you need it.
-  /// You can add these before connection or change them dynamically after connection if
-  /// you wish. There is also an onSubscribeFail callback for failed subscriptions, these
-  /// can fail either because you have tried to subscribe to an invalid topic or the broker
-  /// rejects the subscribe request.
-  client.onSubscribed = onSubscribed;
-
-  /// Set a ping received callback if needed, called whenever a ping response(pong) is received
-  /// from the broker.
-  client.pongCallback = pong;
-
-  /// Create a connection message to use or use the default one. The default one sets the
-  /// client identifier, any supplied username/password, the default keepalive interval(60s)
-  /// and clean session, an example of a specific one below.
-  /// Add some user properties, these may be available in the connect acknowledgement.
-  /// Note there are many otions selectable on this message, if you opt to use authentication please see
-  /// the example in mqtt5_server_client_authenticate.dart.
-  final property = MqttUserProperty();
-  property.pairName = 'Example name';
-  property.pairValue = 'Example value';
-  final connMess = MqttConnectMessage()
-      .withClientIdentifier('MQTT5DartClient')
-      .startClean() // Or startSession() for a persistent session
-      .withUserProperties([property]);
-  print('EXAMPLE::Mosquitto client connecting....');
-  client.connectionMessage = connMess;
-
-  /// Connect the client, any errors here are communicated by raising of the appropriate exception. Note
-  /// in some circumstances the broker will just disconnect us, see the spec about this, we however will
-  /// never send malformed messages.
-  try {
-    print("this step ...");
-    await client.connect();
-  } on MqttNoConnectionException catch (e) {
-    // Raised by the client when connection fails.
-    print('EXAMPLE::client exception - $e');
-    client.disconnect();
-  } on SocketException catch (e) {
-    // Raised by the socket layer
-    print('EXAMPLE::socket exception - $e');
-    client.disconnect();
+  @override
+  void initState() {
+    checkGps();
+    super.initState();
   }
 
-  /// Check we are connected
-  if (client.connectionStatus!.state == MqttConnectionState.connected) {
-    print('EXAMPLE::Mosquitto client connected');
-  } else {
-    /// Use status here rather than state if you also want the broker return code.
-    print(
-        'EXAMPLE::ERROR Mosquitto client connection failed - disconnecting, status is ${client.connectionStatus}');
-    client.disconnect();
-    exit(-1);
+  checkGps() async {
+    servicestatus = await Geolocator.isLocationServiceEnabled();
+    if (servicestatus) {
+      permission = await Geolocator.checkPermission();
+
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          print('Location permissions are denied');
+        } else if (permission == LocationPermission.deniedForever) {
+          print("'Location permissions are permanently denied");
+        } else {
+          haspermission = true;
+        }
+      } else {
+        haspermission = true;
+      }
+
+      if (haspermission) {
+        setState(() {
+          //refresh the UI
+        });
+
+        getLocation();
+      }
+    } else {
+      print("GPS Service is not enabled, turn on GPS location");
+    }
+
+    setState(() {
+      //refresh the UI
+    });
   }
 
-  /// Ok, lets try a subscription
-  print('EXAMPLE::Subscribing to the test/lol topic');
-  const topic = 'test/lol'; // Not a wildcard topic
-  client.subscribe(topic, MqttQos.atMostOnce);
+  getLocation() async {
+    position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high);
+    print(position.longitude); //Output: 80.24599079
+    print(position.latitude); //Output: 29.6593457
 
-  /// The client has a change notifier object(see the Observable class) which we then listen to to get
-  /// notifications of published updates to each subscribed topic.
-  client.updates.listen((List<MqttReceivedMessage<MqttMessage?>>? c) {
-    final recMess = c![0].payload as MqttPublishMessage;
-    final pt = MqttUtilities.bytesToStringAsString(recMess.payload.message!);
+    long = position.longitude.toString();
+    lat = position.latitude.toString();
 
-    /// The above may seem a little convoluted for users only interested in the
-    /// payload, some users however may be interested in the received publish message,
-    /// lets not constrain ourselves yet until the package has been in the wild
-    /// for a while.
-    /// The payload is a byte buffer, this will be specific to the topic
-    print(
-        'EXAMPLE::Change notification:: topic is <${c[0].topic}>, payload is <-- $pt -->');
-    print('');
-  });
+    setState(() {
+      //refresh UI
+    });
 
-  /// If needed you can listen for published messages that have completed the publishing
-  /// handshake which is Qos dependant. Any message received on this stream has completed its
-  /// publishing handshake with the broker.
-  client.published!.listen((MqttPublishMessage message) {
-    print(
-        'EXAMPLE::Published notification:: topic is ${message.variableHeader!.topicName}, with Qos ${message.header!.qos}');
-  });
+    LocationSettings locationSettings = LocationSettings(
+      accuracy: LocationAccuracy.high, //accuracy of the location data
+      distanceFilter: 100, //minimum distance (measured in meters) a
+      //device must move horizontally before an update event is generated;
+    );
 
-  /// Lets publish to our topic
-  /// Use the payload builder rather than a raw buffer
-  /// Our known topic to publish to
-  const pubTopic = 'Dart/Mqtt_client/testtopic';
-  final builder = MqttPayloadBuilder();
-  builder.addString('Hello from mqtt_client');
+    StreamSubscription<Position> positionStream =
+        Geolocator.getPositionStream(locationSettings: locationSettings)
+            .listen((Position position) {
+      print(position.longitude); //Output: 80.24599079
+      print(position.latitude); //Output: 29.6593457
 
-  /// Subscribe to it
-  print('EXAMPLE::Subscribing to the Dart/Mqtt_client/testtopic topic');
-  client.subscribe(pubTopic, MqttQos.exactlyOnce);
+      long = position.longitude.toString();
+      lat = position.latitude.toString();
 
-  /// Publish it
-  print('EXAMPLE::Publishing our topic');
-  client.publishMessage(pubTopic, MqttQos.exactlyOnce, builder.payload!);
-
-  /// Ok, we will now sleep a while, in this gap you will see ping request/response
-  /// messages being exchanged by the keep alive mechanism.
-  print('EXAMPLE::Sleeping....');
-  await MqttUtilities.asyncSleep(120);
-
-  /// Finally, unsubscribe and exit gracefully
-  print('EXAMPLE::Unsubscribing');
-  client.unsubscribeStringTopic(topic);
-
-  /// Wait for the unsubscribe message from the broker if you wish.
-  await MqttUtilities.asyncSleep(2);
-  print('EXAMPLE::Disconnecting');
-  client.disconnect();
-  return 0;
-}
-
-/// The subscribed callback
-void onSubscribed(MqttSubscription subs) {
-  print('EXAMPLE::Subscription confirmed for topic ${subs.topic}');
-}
-
-/// The unsolicited disconnect callback
-void onDisconnected() {
-  print('EXAMPLE::OnDisconnected client callback - Client disconnection');
-  if (client.connectionStatus!.disconnectionOrigin ==
-      MqttDisconnectionOrigin.solicited) {
-    print('EXAMPLE::OnDisconnected callback is solicited, this is correct');
+      setState(() {
+        //refresh UI on update
+      });
+    });
   }
-  exit(-1);
-}
 
-/// The successful connect callback
-void onConnected() {
-  print(
-      'EXAMPLE::OnConnected client callback - Client connection was sucessful');
-}
-
-/// Pong callback
-void pong() {
-  print('EXAMPLE::Ping response client callback invoked');
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+        appBar: AppBar(
+            title: Text("Get GPS Location"), backgroundColor: Colors.redAccent),
+        body: Container(
+            alignment: Alignment.center,
+            padding: EdgeInsets.all(50),
+            child: Column(children: [
+              Text(servicestatus ? "GPS is Enabled" : "GPS is disabled."),
+              Text(haspermission ? "GPS is Enabled" : "GPS is disabled."),
+              Text("Longitude: $long", style: TextStyle(fontSize: 20)),
+              Text(
+                "Latitude: $lat",
+                style: TextStyle(fontSize: 20),
+              )
+            ])));
+  }
 }

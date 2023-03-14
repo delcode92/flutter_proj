@@ -23,6 +23,7 @@ Future<int> main() async {
   client.connectionMessage = connMess;
 
   try {
+    print("ok bro");
     await client.connect();
   } on NoConnectionException catch (e) {
     print('client exception - $e');
