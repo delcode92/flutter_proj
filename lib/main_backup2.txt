@@ -1,0 +1,45 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:mqtt_client/mqtt_client.dart';
+import 'package:mqtt_client/mqtt_server_client.dart';
+import 'package:mqtt_client/mqtt_browser_client.dart';
+
+void main() {
+  try {
+    final client =
+        MqttBrowserClient('wss://mqtt.eclipseprojects.io/mqtt', 'meong123');
+
+    client.logging(on: true);
+
+    client.onConnected = onConnected;
+    client.onDisconnected = onDisconnected;
+
+    final connMessage = MqttConnectMessage()
+        .withClientIdentifier('meong123')
+        .startClean()
+        .withWillQos(MqttQos.atLeastOnce);
+    client.connectionMessage = connMessage;
+
+    client.connect();
+
+    Timer.periodic(Duration(seconds: 1), (timer) {
+      if (client.connectionStatus!.state == MqttConnectionState.connected) {
+        final builder = MqttClientPayloadBuilder();
+        builder.addString('Hello from Flutter');
+        client.publishMessage('jnck', MqttQos.atLeastOnce, builder.payload!);
+      } else {
+        print('Client not connected.');
+      }
+    });
+  } catch (e) {
+    print('EXAMPLE::client exception - $e');
+  }
+}
+
+void onConnected() {
+  print('Connected to broker.');
+}
+
+void onDisconnected() {
+  print('Disconnected from broker.');
+}
